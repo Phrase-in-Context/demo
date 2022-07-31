@@ -16,6 +16,7 @@ import torch
 import numpy as np
 from scipy.special import softmax
 from nltk.util import ngrams
+import nltk
 
 from datasets import load_dataset
 from retrieval_ranking import CreateLogger
@@ -40,24 +41,13 @@ def index():
     return render_template('index.html', examples=datasets["PR-pass"])
 
 
-def pick_top_n(results, top_n):
-    """ """
-    new_results = []
-    closed = set()
-    for result in results:
-        # if the higher-scored phrases are not a substring of result['phrase']
-        if all([x not in result['phrase'][0] for x in closed]):
-            new_results.append(result)
-            closed.add(result['phrase'][0])
-
-        if len(new_results) >= top_n:
-            break
-
-    return new_results
-
-
 def prepare_phrase_list(context):
     global tokenizer
+    global sent_tokenizer
+
+    sentences = sent_tokenizer.tokenize(context)
+    token_sentences, token_sent = [], []
+    sent_idx, total_length = 0, len(sentences[0])
 
     tokenized_examples = tokenizer(
         context.replace("</br></br>", "  "),
@@ -81,30 +71,42 @@ def prepare_phrase_list(context):
     list_words, list_offsets = [], []
     for word_id, values in word_dict.items():
         list_words.append("".join(values["tokens"]))
+        list_words_processed = [token.replace("Ġ", "") for token in list_words]
         list_offsets.append([values["offsets"][0][0], values["offsets"][-1][1]])
 
-    list_words = ["".join(word_dict[word_id]["tokens"]) for word_id in word_dict.keys()]
-    list_words_processed = [token.replace("Ġ", "") for token in list_words]
-    words_indices = [(word, i) for i, word in enumerate(list_words_processed)]
+        if list_offsets[-1][1] > total_length:
+            sent_idx += 1
+            total_length += (len(sentences[sent_idx]) + 1) if sent_idx < len(sentences) else 0
+            token_sentences.append(token_sent)
+            token_sent = []
+
+        token_sent.append(list_words_processed[-1])
+
+    token_sentences.append(token_sent)
+    assert len(sentences) == len(token_sentences)
+
     list_ngram = []
+    for sent_idx, token_sent in enumerate(token_sentences):
+        words_indices = [(word, i) for i, word in enumerate(token_sent)]
 
-    for n in range(1, 4):
-        ngrams_indices = [grams for grams in ngrams(words_indices, n)]
-        for grams_indices in ngrams_indices:
-            phrase, indices = [], []
-            for gram, idx in grams_indices:
-                phrase.append(gram)
-                indices.append(idx)
+        for n in range(1, 4):
+            ngrams_indices = [grams for grams in ngrams(words_indices, n)]
+            for grams_indices in ngrams_indices:
+                phrase, indices = [], []
+                for gram, idx in grams_indices:
+                    phrase.append(gram)
+                    indices.append(idx)
 
-            list_ngram.append((" ".join(phrase).lower(), indices))
+                list_ngram.append((" ".join(phrase).lower(), indices, sent_idx))
 
-    return list_ngram, list_words, list_offsets
+    return list_ngram, list_words, list_offsets, token_sentences
 
 
 @app.route('/ranking_search', methods=['GET', 'POST'])
 def ranking_search():
     """ """
     global logger
+    global model_bert
     global model_phrasebert
 
     start_time = time.time()
@@ -115,17 +117,22 @@ def ranking_search():
     extractor_name = request.form.get('extractor', '').strip()
     scorer = request.form.get('scorer', '').strip()
     answer_start_offset = int(request.form.get('start_index', -1))
+    contextual = request.form.get('contextual_setting', '').strip()
+    contextual = True if contextual == "contextual" else False
+    # contextual = True
     
     logger.debug("extractor_name: %s", extractor_name)
     logger.debug("scorer: %s", scorer)
 
-    phrases_ngrams, list_tokens, offset_mapping = prepare_phrase_list(text)
-    results = model_phrasebert.search_with_indices(query, phrases=phrases_ngrams, top_n=3)
+    phrases_ngrams, list_tokens, offset_mapping, token_sentences = prepare_phrase_list(text)
+    if contextual:
+        results = model_bert.search_with_indices(query, candidates=phrases_ngrams, token_sentences=token_sentences, top_n=3, contextual=contextual)
+    else:
+        results = model_phrasebert.search_with_indices(query, candidates=phrases_ngrams, token_sentences=token_sentences, top_n=3, contextual=contextual)
 
     highlight_dict = {}
     answer_start_index, answer_end_index = 0, 0
 
-    # context_start_index follows subwords but list_tokens follows words. Fix it tomorrow.
     for idx, offset in enumerate(offset_mapping):
         if offset[0] == answer_start_offset:
             answer_start_index = idx
@@ -140,8 +147,9 @@ def ranking_search():
             highlight_dict[idx].append("ground-truth")
 
         for rank, result in enumerate(results, 1):
-            pred_start_index = result["phrase"][1][0]
-            pred_end_index = result["phrase"][1][-1]
+            start_idx = sum([len(token_sent) for token_sent in token_sentences[:result["phrase"][2]]])
+            pred_start_index = start_idx + result["phrase"][1][0]
+            pred_end_index = start_idx + result["phrase"][1][-1]
             if pred_start_index <= idx <= pred_end_index:
                 highlight_dict[idx].append("top-{}".format(rank))
 
@@ -312,7 +320,7 @@ def load_model(scorer):
     model_fpath = scorers[-1]['model_fpath'] if len(scorers) > 0 else ""
     tokenizer = None
 
-    if scorer_name == "PhraseBERT":
+    if scorer_name in ["BERT", "PhraseBERT"]:
         model = System()
         model.set_ss_scorer(scorer_name, model_fpath, scorer_type)
     else:
@@ -360,8 +368,11 @@ if __name__ == '__main__':
 
     datasets = load_datasets()
 
+    model_bert, _ = load_model('BERT:bert-base-uncased')
     model_phrasebert, _ = load_model('PhraseBERT:phrase-bert-qa')
     model_longformer, tokenizer = load_model('Longformer:allenai/longformer-base-4096')
+
+    sent_tokenizer = nltk.data.load('tokenizers/punkt/PY3/english.pickle')
 
     # Other arguments: use_reloader, debug
     app.run(debug=True, host='0.0.0.0', port=5007)

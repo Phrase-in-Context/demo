@@ -108,7 +108,7 @@
 
 <div id="main-content" class="row">
     <div class="col-md-6">
-        <p>This web app demonstrates how some state-of-the-art models (Longformer for QA-based search and PhraseBERT for Ranking-based search) perform on three phrase search tasks in the <a target="_blank" href="https://phrase-in-context.github.io/">Phrase-in-Context</a> (PiC) suite, a dataset for evaluating phrase understanding. From the given paragraph, this app finds phrases that are semantically similar to the query. We greatly appreciate your <a href="mailto:phrase-in-context@googlegroups.com" target="_blank">feedback and comments</a>.</p>
+        <p>This web app demonstrates how some state-of-the-art models (Longformer for QA-based search and PhraseBERT for Ranking-based search) perform on two out of three phrase search tasks in the <a target="_blank" href="https://phrase-in-context.github.io/">Phrase-in-Context</a> (PiC) suite, a dataset for evaluating phrase understanding. From the given paragraph, this app finds phrases that are semantically similar to the query. We greatly appreciate your <a href="mailto:phrase-in-context@googlegroups.com" target="_blank">feedback and comments</a>.</p>
         <form name="datasetSelect" class="form-group">
             <label for="pr_pass"><b>Dataset</b></label>
             <table>
@@ -126,6 +126,22 @@
                     <td>
                         <input type="radio" id="psd" name="dataset" value="PSD">
                         <label for="psd">PSD: Phrase Sense Disambiguation</label>
+                    </td>
+                </tr>
+            </table>
+        </form>
+        <form name="contextualSelect" class="form-group">
+            <label for="non_contextual"><b>Contextual settings for phrase embeddings</b> (Ranking-based Search only)</label>
+            <table>
+                <tr>
+                    <td>
+                        <input type="radio" id="non_contextual" name="contextual_setting" value="non_contextual" checked>
+                        <label for="non_contextual">Non-contextual</label>
+                    </td>
+                    <td width="60px"></td>
+                    <td>
+                        <input type="radio" id="contextual" name="contextual_setting" value="contextual">
+                        <label for="contextual">Contextual</label>
                     </td>
                 </tr>
             </table>
@@ -254,7 +270,7 @@
     });
 
     $('#show-top-3-checkbox').change(function () {
-        updateHighligh();
+        updateHighlight();
     });
 
     var rad = document.datasetSelect.dataset;
@@ -328,7 +344,7 @@
         });
     }
 
-    function updateHighligh() {
+    function updateHighlight() {
         if ($('#show-top-3-checkbox').is(":checked")) {
             $('.top-3').css('background-color', 'rgba(109, 185, 193, 1)');
             $('.top-2').css('background-color', 'rgba(239, 206, 123, 1)');
@@ -358,6 +374,7 @@
         var answerText = $('#answerInput').val().trim();
         var extractorName = $('#extract_select').find(":selected").text();
         var scorerName = $('#score_select').find(":selected").val();
+        var contextualSetting = $('input[name="contextual_setting"]:checked').val();
 
         if (paragraphText === "" || queryText === "") {
             return;
@@ -379,6 +396,7 @@
         data.append('extractor', extractorName);
         data.append('scorer', scorerName);
         data.append('start_index', start_index);
+        data.append('contextual_setting', contextualSetting);
 
         let url = "ranking_search";
         $.ajax({
@@ -405,7 +423,7 @@
                 var top_2_phrase = document.getElementById("top-2-phrase")
                 var top_3_phrase = document.getElementById("top-3-phrase")
 
-                updateHighligh();
+                updateHighlight();
 
                 // Hide the loading animation and show the result div
                 $('#loader').addClass('d-none')
@@ -425,6 +443,7 @@
         var paragraphText = $('#paragraphTextArea').val().trim();
         var queryText = $('#queryInput').val().trim();
         var answerText = $('#answerInput').val().trim();
+        var contextualSetting = $('input[name="contextual_setting"]:checked').val();
 
         if (paragraphText === "" || queryText === "") {
             return;
@@ -444,6 +463,7 @@
         data.append('query_text', queryText);
         data.append('answer_text', answerText);
         data.append('start_index', start_index);
+        data.append('contextual_setting', contextualSetting);
 
         let url = "qa_search";
         $.ajax({
@@ -473,7 +493,7 @@
                 var top_2_phrase = document.getElementById("top-2-phrase")
                 var top_3_phrase = document.getElementById("top-3-phrase")
 
-                updateHighligh();
+                updateHighlight();
 
                 // Hide the loading animation and show the result div
                 $('#loader').addClass('d-none')

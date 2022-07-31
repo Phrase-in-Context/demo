@@ -54,9 +54,9 @@ class System(object):
 
         return result
 
-    def search_with_indices(self, query, phrases=None, top_n=10):
+    def search_with_indices(self, query, candidates=None, token_sentences=None, top_n=10, contextual=False):
         # search with indices
-        result = self.semantic_search.search_for_demo(query, phrases=phrases, top_n=top_n)
+        result = self.semantic_search.search_for_demo(query, candidates=candidates, token_sentences=token_sentences, top_n=top_n, contextual=contextual)
         result.sort(key=lambda x: x['score'], reverse=True)
 
         return result
